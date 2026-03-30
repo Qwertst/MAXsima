@@ -52,22 +52,76 @@ func TestChatManagerReceivesIncomingMessages(t *testing.T) {
 }
 
 func TestChatManagerSendsUserMessages(t *testing.T) {
-	ui := &MockUIRenderer{}
-	mgr := NewChatManager(ui, "Alice")
+	mUI := &MockUIRenderer{}
+	mgr := NewChatManager(mUI, "Alice")
 
 	sender := &MockMessageSender{}
+	// Use a slow receiver so the session stays active long enough for
+	// handleOutgoing to send both messages before the session ends.
+	receiver := NewMockSlowMessageReceiver(500 * time.Millisecond)
+
+	// Prime the UI with two messages before starting the session.
+	mUI.SetInputs([]string{"Hello Bob!", "How are you?"})
+
+	mgr.StartSession(sender, receiver)
+	time.Sleep(200 * time.Millisecond)
+
+	sent := sender.GetSentMessages()
+	if len(sent) < 2 {
+		t.Errorf("expected 2 sent messages, got %d", len(sent))
+		return
+	}
+	if sent[0].Text != "Hello Bob!" || sent[0].SenderName != "Alice" {
+		t.Errorf("unexpected first sent message: %+v", sent[0])
+	}
+	if sent[1].Text != "How are you?" {
+		t.Errorf("unexpected second sent message: %+v", sent[1])
+	}
+}
+
+func TestChatManagerSendErrorStopsSession(t *testing.T) {
+	mUI := &MockUIRenderer{}
+	mgr := NewChatManager(mUI, "Alice")
+
+	failSender := &MockFailingSender{}
 	receiver := NewMockMessageReceiverWithMessages([]Message{})
+	mUI.SetInputs([]string{"trigger error"})
+
+	mgr.StartSession(failSender, receiver)
+
+	// Wait() should unblock after the send error stops the session.
+	done := make(chan struct{})
+	go func() { mgr.Wait(); close(done) }()
+
+	select {
+	case <-done:
+		// session stopped due to send error — pass
+	case <-time.After(2 * time.Second):
+		t.Errorf("session did not stop after send error")
+	}
+}
+
+func TestChatManagerWait(t *testing.T) {
+	mUI := &MockUIRenderer{}
+	mgr := NewChatManager(mUI, "Alice")
+
+	// Receiver returns one message then EOF.
+	receiver := NewMockMessageReceiverWithMessages([]Message{
+		{SenderName: "Bob", Text: "hi", Timestamp: time.Now()},
+	})
+	sender := &MockMessageSender{}
 
 	mgr.StartSession(sender, receiver)
 
-	userInputs := []string{"Hello Bob!", "How are you?"}
-	ui.SetInputs(userInputs)
+	done := make(chan struct{})
+	go func() { mgr.Wait(); close(done) }()
 
-	for _, input := range userInputs {
-		_ = input
+	select {
+	case <-done:
+		// Wait() returned after session ended — pass
+	case <-time.After(2 * time.Second):
+		t.Errorf("Wait() did not return after session ended")
 	}
-
-	_ = sender
 }
 
 func TestChatManagerHandlesConnectionClosure(t *testing.T) {
@@ -216,15 +270,31 @@ func (m *MockUIRenderer) SetInputs(inputs []string) {
 }
 
 type MockMessageSender struct {
-	SentMessages []Message
+	sentMessages []Message
 	mutex        sync.Mutex
 }
 
 func (m *MockMessageSender) Send(msg Message) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	m.SentMessages = append(m.SentMessages, msg)
+	m.sentMessages = append(m.sentMessages, msg)
 	return nil
+}
+
+// GetSentMessages returns a safe copy of all sent messages.
+func (m *MockMessageSender) GetSentMessages() []Message {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	out := make([]Message, len(m.sentMessages))
+	copy(out, m.sentMessages)
+	return out
+}
+
+// MockFailingSender always returns an error from Send.
+type MockFailingSender struct{}
+
+func (m *MockFailingSender) Send(msg Message) error {
+	return ErrConnectionClosed
 }
 
 type MockMessageReceiver struct {

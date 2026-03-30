@@ -88,6 +88,32 @@ func TestClientConnectFailsOnNoServer(t *testing.T) {
 	}
 }
 
+func TestClientNewFailsWhenServerRejectsGRPC(t *testing.T) {
+	// Start a plain TCP server that immediately closes connections.
+	// This causes grpc.Dial to succeed (TCP connects) but stub.Connect to fail.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() {
+		for {
+			conn, err := lis.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close() // immediately close — not a gRPC server
+		}
+	}()
+	defer lis.Close()
+
+	mUI := &testutil.MockUI{}
+	mgr := chat.NewManager("Bob", mUI)
+	_, err = New(lis.Addr().String(), mgr)
+	if err == nil {
+		t.Errorf("New() should fail when server is not a gRPC server")
+	}
+}
+
 func TestClientRunSendsAndReceivesMessages(t *testing.T) {
 	// echoServer echoes messages back. We send one message; the UI then
 	// returns io.EOF which stops the outgoing handler. The incoming handler
