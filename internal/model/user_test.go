@@ -75,7 +75,7 @@ func TestUserValidationWithTooLongName(t *testing.T) {
 
 	err := user.Validate()
 
-	_ = err
+	t.Logf("Validation result for too-long name: %v", err)
 }
 
 func TestUserCreation(t *testing.T) {

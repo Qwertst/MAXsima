@@ -309,7 +309,7 @@ func (m *MockMessageSender) GetSentMessages() []Message {
 // MockFailingSender always returns an error from Send.
 type MockFailingSender struct{}
 
-func (m *MockFailingSender) Send(msg Message) error {
+func (m *MockFailingSender) Send(_ Message) error {
 	return ErrConnectionClosed
 }
 

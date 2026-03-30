@@ -52,7 +52,7 @@ func startTestServer(t *testing.T, srv pb.ChatServiceServer) (addr string, stop 
 	}
 	grpcSrv := grpc.NewServer()
 	pb.RegisterChatServiceServer(grpcSrv, srv)
-	go grpcSrv.Serve(lis)
+	go func() { _ = grpcSrv.Serve(lis) }()
 	return lis.Addr().String(), func() { grpcSrv.Stop() }
 }
 

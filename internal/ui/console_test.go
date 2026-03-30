@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"testing"
-	"strings"
 	"bufio"
 	"bytes"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/aydreq/maxsima/internal/model"
@@ -135,9 +135,9 @@ func TestConsoleUIIsImplementingUIRenderer(t *testing.T) {
 	var input strings.Reader
 	ui := NewConsoleUI(&output, bufio.NewReader(&input))
 
-	var _ UIRenderer = ui
+	var _ Renderer = ui
 
-	t.Log("ConsoleUI correctly implements UIRenderer interface")
+	t.Log("ConsoleUI correctly implements Renderer interface")
 }
 
 func TestConsoleUIDisplayMessageWithNilWriter(t *testing.T) {

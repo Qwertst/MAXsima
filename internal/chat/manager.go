@@ -14,13 +14,13 @@ type Message = model.Message
 
 type Manager struct {
 	username string
-	ui       ui.UIRenderer
+	ui       ui.Renderer
 	session  *Session
 	done     chan struct{}
 }
 
 // NewManager creates a new Manager. NewChatManager is an alias for compatibility.
-func NewManager(username string, renderer ui.UIRenderer) *Manager {
+func NewManager(username string, renderer ui.Renderer) *Manager {
 	return &Manager{
 		username: username,
 		ui:       renderer,
@@ -29,7 +29,7 @@ func NewManager(username string, renderer ui.UIRenderer) *Manager {
 }
 
 // NewChatManager is an alias for NewManager, used by tests.
-func NewChatManager(renderer ui.UIRenderer, username string) *Manager {
+func NewChatManager(renderer ui.Renderer, username string) *Manager {
 	return NewManager(username, renderer)
 }
 

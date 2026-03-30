@@ -8,7 +8,7 @@ import (
 	"github.com/aydreq/maxsima/internal/model"
 )
 
-// MockUI is a minimal ui.UIRenderer implementation for tests.
+// MockUI is a minimal ui.Renderer implementation for tests.
 // It records all displayed messages and serves pre-configured input strings.
 // When the input queue is exhausted it returns io.EOF.
 type MockUI struct {
@@ -54,7 +54,7 @@ func (m *MockUI) Messages() []model.Message {
 	return out
 }
 
-// BlockingMockUI is a ui.UIRenderer whose ReadInput blocks until Stop() is
+// BlockingMockUI is a ui.Renderer whose ReadInput blocks until Stop() is
 // called (at which point it returns io.EOF). Use this for the server side in
 // integration tests so the server session stays alive while the test runs.
 type BlockingMockUI struct {
