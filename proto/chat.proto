@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package chat;
+
+option go_package = "github.com/aydreq/maxsima/proto/gen/chat";
+
+// ChatService определяет контракт peer-to-peer чата MAXsima.
+service ChatService {
+  // Connect открывает двунаправленный стрим для обмена сообщениями.
+  rpc Connect(stream ChatMessage) returns (stream ChatMessage);
+}
+
+// ChatMessage представляет одно сообщение в чате.
+message ChatMessage {
+  // sender_name — имя отправителя, заданное через --username
+  string sender_name = 1;
+
+  // timestamp — время отправки в формате Unix timestamp (секунды, UTC)
+  int64 timestamp = 2;
+
+  // text — текстовое содержимое сообщения
+  string text = 3;
+}
