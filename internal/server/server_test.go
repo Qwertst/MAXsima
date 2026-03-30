@@ -26,7 +26,7 @@ func startRealServer(t *testing.T, mgr *chat.Manager) (addr string, stop func())
 	// Use the production server.New() — this is what we're testing.
 	srv := New(mgr)
 	pb.RegisterChatServiceServer(grpcSrv, srv)
-	go grpcSrv.Serve(lis)
+	go func() { _ = grpcSrv.Serve(lis) }()
 	return lis.Addr().String(), func() { grpcSrv.Stop() }
 }
 

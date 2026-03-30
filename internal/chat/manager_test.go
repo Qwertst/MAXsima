@@ -1,8 +1,8 @@
 package chat
 
 import (
-	"testing"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -39,7 +39,9 @@ func TestChatManagerReceivesIncomingMessages(t *testing.T) {
 	receiver := NewMockMessageReceiverWithMessages(incomingMessages)
 	sender := &MockMessageSender{}
 
-	mgr.StartSession(sender, receiver)
+	if err := mgr.StartSession(sender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -63,7 +65,9 @@ func TestChatManagerSendsUserMessages(t *testing.T) {
 	// Prime the UI with two messages before starting the session.
 	mUI.SetInputs([]string{"Hello Bob!", "How are you?"})
 
-	mgr.StartSession(sender, receiver)
+	if err := mgr.StartSession(sender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 	time.Sleep(200 * time.Millisecond)
 
 	sent := sender.GetSentMessages()
@@ -87,7 +91,9 @@ func TestChatManagerSendErrorStopsSession(t *testing.T) {
 	receiver := NewMockMessageReceiverWithMessages([]Message{})
 	mUI.SetInputs([]string{"trigger error"})
 
-	mgr.StartSession(failSender, receiver)
+	if err := mgr.StartSession(failSender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 
 	// Wait() should unblock after the send error stops the session.
 	done := make(chan struct{})
@@ -111,7 +117,9 @@ func TestChatManagerWait(t *testing.T) {
 	})
 	sender := &MockMessageSender{}
 
-	mgr.StartSession(sender, receiver)
+	if err := mgr.StartSession(sender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 
 	done := make(chan struct{})
 	go func() { mgr.Wait(); close(done) }()
@@ -145,7 +153,9 @@ func TestChatManagerStopSession(t *testing.T) {
 	sender := &MockMessageSender{}
 	receiver := NewMockMessageReceiverWithMessages(make([]Message, 0))
 
-	mgr.StartSession(sender, receiver)
+	if err := mgr.StartSession(sender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 
 	err := mgr.StopSession()
 
@@ -169,7 +179,9 @@ func TestChatManagerBidirectionalMessaging(t *testing.T) {
 	userMessages := []string{"Hi Bob!", "See you!"}
 	ui.SetInputs(userMessages)
 
-	mgr.StartSession(sender, receiver)
+	if err := mgr.StartSession(sender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond)
 
 	if len(ui.GetDisplayedMessages()) < len(incomingMessages) {
@@ -189,7 +201,9 @@ func TestChatManagerMessageFormat(t *testing.T) {
 	receiver := NewMockMessageReceiverWithMessages([]Message{incomingMsg})
 	sender := &MockMessageSender{}
 
-	mgr.StartSession(sender, receiver)
+	if err := mgr.StartSession(sender, receiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	msgs := ui.GetDisplayedMessages()
@@ -220,7 +234,9 @@ func TestChatManagerConcurrentReadWrite(t *testing.T) {
 	sender := &MockMessageSender{}
 
 	startTime := time.Now()
-	mgr.StartSession(sender, slowReceiver)
+	if err := mgr.StartSession(sender, slowReceiver); err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond)
 
 	elapsed := time.Since(startTime)

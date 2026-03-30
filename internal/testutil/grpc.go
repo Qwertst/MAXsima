@@ -30,7 +30,7 @@ func StartGRPCServer(t *testing.T, username string) (addr string, serverUI *Bloc
 	}
 	grpcSrv := grpc.NewServer()
 	pb.RegisterChatServiceServer(grpcSrv, &serverAdapter{mgr: mgr})
-	go grpcSrv.Serve(lis)
+	go func() { _ = grpcSrv.Serve(lis) }()
 
 	return lis.Addr().String(), serverUI, func() {
 		serverUI.Stop() // unblock ReadInput so the session ends cleanly
@@ -38,7 +38,7 @@ func StartGRPCServer(t *testing.T, username string) (addr string, serverUI *Bloc
 	}
 }
 
-// StartGRPCServerWithUI starts a gRPC server using the provided manager.
+// StartGRPCServerWithManager starts a gRPC server using the provided manager.
 // The caller is responsible for ensuring the manager's UI does not return
 // io.EOF prematurely (use BlockingMockUI for the server side).
 func StartGRPCServerWithManager(t *testing.T, mgr *chat.Manager) (addr string, stop func()) {
@@ -49,7 +49,7 @@ func StartGRPCServerWithManager(t *testing.T, mgr *chat.Manager) (addr string, s
 	}
 	grpcSrv := grpc.NewServer()
 	pb.RegisterChatServiceServer(grpcSrv, &serverAdapter{mgr: mgr})
-	go grpcSrv.Serve(lis)
+	go func() { _ = grpcSrv.Serve(lis) }()
 	return lis.Addr().String(), func() { grpcSrv.Stop() }
 }
 
@@ -91,7 +91,7 @@ func TryDialGRPC(addr, username string) (*chat.Manager, func(), error) {
 		conn.Close()
 		return nil, nil, err
 	}
-	return mgr, func() { mgr.StopSession(); conn.Close() }, nil
+	return mgr, func() { _ = mgr.StopSession(); conn.Close() }, nil
 }
 
 // dialWithManager is the shared implementation for DialGRPC / DialGRPCWithManager.
@@ -112,7 +112,7 @@ func dialWithManager(t *testing.T, addr string, mgr *chat.Manager) func() {
 		t.Fatalf("testutil.dialWithManager: StartSession: %v", err)
 	}
 	return func() {
-		mgr.StopSession()
+		_ = mgr.StopSession()
 		conn.Close()
 	}
 }
