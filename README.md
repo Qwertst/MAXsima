@@ -1,4 +1,5 @@
 # MAXsima
+[![CI](https://github.com/Qwertst/MAXsima/actions/workflows/ci.yml/badge.svg)](https://github.com/Qwertst/MAXsima/actions/workflows/ci.yml)
 
 Консольный peer-to-peer чат на Go с использованием gRPC двунаправленного стриминга.
 
