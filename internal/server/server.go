@@ -5,11 +5,10 @@ import (
 	"net"
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/aydreq/maxsima/internal/chat"
 	"github.com/aydreq/maxsima/internal/model"
 	pb "github.com/aydreq/maxsima/proto/gen/chat"
+	"google.golang.org/grpc"
 )
 
 type Server struct {

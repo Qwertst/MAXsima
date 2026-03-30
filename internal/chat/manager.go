@@ -73,7 +73,9 @@ func (m *Manager) handleIncoming() {
 			if err != io.EOF {
 				fmt.Printf("receive error: %v\n", err)
 			}
-			m.StopSession()
+			if stopErr := m.StopSession(); stopErr != nil {
+				fmt.Printf("stop session error: %v\n", stopErr)
+			}
 			return
 		}
 		m.ui.DisplayMessage(msg)
@@ -99,7 +101,9 @@ func (m *Manager) handleOutgoing() {
 		}
 		if err := m.session.sender.Send(msg); err != nil {
 			fmt.Printf("send error: %v\n", err)
-			m.StopSession()
+			if stopErr := m.StopSession(); stopErr != nil {
+				fmt.Printf("stop session error: %v\n", stopErr)
+			}
 			return
 		}
 	}
