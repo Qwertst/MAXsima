@@ -43,12 +43,11 @@ func TestChatManagerReceivesIncomingMessages(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	if len(ui.DisplayedMessages) != 2 {
-		t.Errorf("Expected 2 displayed messages, got %d", len(ui.DisplayedMessages))
-	}
-
-	if ui.DisplayedMessages[0].SenderName != "Bob" || ui.DisplayedMessages[0].Text != "Hello Alice!" {
-		t.Errorf("First message not displayed correctly: %v", ui.DisplayedMessages[0])
+	msgs := ui.GetDisplayedMessages()
+	if len(msgs) != 2 {
+		t.Errorf("Expected 2 displayed messages, got %d", len(msgs))
+	} else if msgs[0].SenderName != "Bob" || msgs[0].Text != "Hello Alice!" {
+		t.Errorf("First message not displayed correctly: %v", msgs[0])
 	}
 }
 
@@ -110,7 +109,7 @@ func TestChatManagerBidirectionalMessaging(t *testing.T) {
 		{SenderName: "Bob", Text: "Goodbye!", Timestamp: time.Now()},
 	}
 	receiver := NewMockMessageReceiverWithMessages(incomingMessages)
-	
+
 	sender := &MockMessageSender{}
 
 	userMessages := []string{"Hi Bob!", "See you!"}
@@ -119,7 +118,7 @@ func TestChatManagerBidirectionalMessaging(t *testing.T) {
 	mgr.StartSession(sender, receiver)
 	time.Sleep(100 * time.Millisecond)
 
-	if len(ui.DisplayedMessages) < len(incomingMessages) {
+	if len(ui.GetDisplayedMessages()) < len(incomingMessages) {
 		t.Errorf("Not all incoming messages were displayed")
 	}
 }
@@ -139,9 +138,9 @@ func TestChatManagerMessageFormat(t *testing.T) {
 	mgr.StartSession(sender, receiver)
 	time.Sleep(50 * time.Millisecond)
 
-	if len(ui.DisplayedMessages) > 0 {
-		displayedMsg := ui.DisplayedMessages[0]
-		if displayedMsg.SenderName != "David" || displayedMsg.Text != "Test message" {
+	msgs := ui.GetDisplayedMessages()
+	if len(msgs) > 0 {
+		if msgs[0].SenderName != "David" || msgs[0].Text != "Test message" {
 			t.Errorf("Message not formatted correctly")
 		}
 	}
@@ -177,7 +176,7 @@ func TestChatManagerConcurrentReadWrite(t *testing.T) {
 }
 
 type MockUIRenderer struct {
-	DisplayedMessages []Message
+	displayedMessages []Message
 	inputQueue        []string
 	inputIndex        int
 	mutex             sync.Mutex
@@ -186,7 +185,16 @@ type MockUIRenderer struct {
 func (m *MockUIRenderer) DisplayMessage(msg Message) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	m.DisplayedMessages = append(m.DisplayedMessages, msg)
+	m.displayedMessages = append(m.displayedMessages, msg)
+}
+
+// GetDisplayedMessages returns a safe copy of all displayed messages.
+func (m *MockUIRenderer) GetDisplayedMessages() []Message {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	out := make([]Message, len(m.displayedMessages))
+	copy(out, m.displayedMessages)
+	return out
 }
 
 func (m *MockUIRenderer) ReadInput() (string, error) {

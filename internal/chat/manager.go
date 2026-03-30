@@ -39,6 +39,8 @@ func (m *Manager) GetUsername() string {
 }
 
 func (m *Manager) StartSession(sender MessageSender, receiver MessageReceiver) error {
+	// Reset the done channel so Wait() blocks correctly for this new session.
+	m.done = make(chan struct{})
 	m.session = NewSession(sender, receiver, m.username)
 
 	go m.handleIncoming()
@@ -82,9 +84,9 @@ func (m *Manager) handleOutgoing() {
 	for m.session.IsActive() {
 		text, err := m.ui.ReadInput()
 		if err != nil {
-			if err == io.EOF {
-				m.StopSession()
-			}
+			// io.EOF means the user closed their input (e.g. Ctrl-D).
+			// We stop sending but do NOT stop the session — handleIncoming
+			// will keep running until the remote side closes the stream.
 			return
 		}
 		if text == "" {

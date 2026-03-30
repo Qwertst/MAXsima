@@ -1,175 +1,149 @@
 package client
 
 import (
-	"fmt"
 	"net"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc"
+
+	"github.com/aydreq/maxsima/internal/chat"
+	"github.com/aydreq/maxsima/internal/testutil"
+	pb "github.com/aydreq/maxsima/proto/gen/chat"
 )
 
-func TestClientConnect(t *testing.T) {
-	serverConfig := ServerConfig{
-		Username: "Alice",
-		Port:     54324,
-	}
-	serverManager := &MockChatManager{}
-	server := NewServer(serverConfig, serverManager)
-	server.Start()
-	defer server.Stop()
-
-	time.Sleep(100 * time.Millisecond)
-
-	clientConfig := ClientConfig{
-		Username:    "Bob",
-		PeerAddress: "localhost:54324",
-	}
-
-	client := NewClient(clientConfig)
-	err := client.Connect()
-
-	if err != nil {
-		t.Errorf("Client.Connect() should succeed, got: %v", err)
-	}
-
-	client.Close()
+// echoServer is a minimal gRPC ChatService that echoes every received message
+// back to the sender.
+type echoServer struct {
+	pb.UnimplementedChatServiceServer
 }
 
-func TestClientConnectFailure(t *testing.T) {
-	clientConfig := ClientConfig{
-		Username:    "Bob",
-		PeerAddress: "localhost:54999",
-	}
-
-	client := NewClient(clientConfig)
-	err := client.Connect()
-
-	if err == nil {
-		t.Errorf("Client.Connect() to non-existent server should produce error")
-		client.Close()
-	}
-}
-
-func TestClientClose(t *testing.T) {
-	serverConfig := ServerConfig{
-		Username: "Alice",
-		Port:     54325,
-	}
-	server := NewServer(serverConfig, &MockChatManager{})
-	server.Start()
-	defer server.Stop()
-
-	time.Sleep(100 * time.Millisecond)
-
-	clientConfig := ClientConfig{
-		Username:    "Bob",
-		PeerAddress: "localhost:54325",
-	}
-	client := NewClient(clientConfig)
-	client.Connect()
-
-	err := client.Close()
-
-	if err != nil {
-		t.Logf("Client.Close() produced warning: %v (may be expected)", err)
-	}
-}
-
-type ServerConfig struct {
-	Username string
-	Port     int
-}
-
-type ClientConfig struct {
-	Username    string
-	PeerAddress string
-}
-
-type MockChatManager struct {
-	ReceivedMessages []Message
-	SentMessages     []Message
-}
-
-func (m *MockChatManager) StartSession(sender MessageSender, receiver MessageReceiver) error {
-	return nil
-}
-
-func (m *MockChatManager) StopSession() error {
-	return nil
-}
-
-type Message struct {
-	SenderName string
-	Timestamp  time.Time
-	Text       string
-}
-
-type MessageSender interface {
-	Send(msg Message) error
-}
-
-type MessageReceiver interface {
-	Receive() (Message, error)
-}
-
-func NewServer(cfg ServerConfig, mgr interface{}) *TransportServer {
-	return &TransportServer{port: cfg.Port}
-}
-
-func NewClient(cfg ClientConfig) *TransportClient {
-	return &TransportClient{peerAddress: cfg.PeerAddress}
-}
-
-type TransportServer struct {
-	port     int
-	listener net.Listener
-}
-
-func (ts *TransportServer) Start() error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ts.port))
-	if err != nil {
-		return err
-	}
-	ts.listener = ln
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			conn.Close()
+func (e *echoServer) Connect(stream pb.ChatService_ConnectServer) error {
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			return err
 		}
-	}()
-	return nil
-}
-
-func (ts *TransportServer) Stop() error {
-	if ts.listener != nil {
-		return ts.listener.Close()
+		if err := stream.Send(msg); err != nil {
+			return err
+		}
 	}
+}
+
+// noopServer accepts connections but never sends or receives anything.
+type noopServer struct {
+	pb.UnimplementedChatServiceServer
+	connected chan struct{}
+}
+
+func (n *noopServer) Connect(stream pb.ChatService_ConnectServer) error {
+	close(n.connected)
+	<-stream.Context().Done()
 	return nil
 }
 
-func (ts *TransportServer) Send(msg Message) error { return nil }
-
-type TransportClient struct {
-	peerAddress string
-	conn        net.Conn
-}
-
-func (tc *TransportClient) Connect() error {
-	conn, err := net.DialTimeout("tcp", tc.peerAddress, 2*time.Second)
+// startTestServer starts a gRPC server with the given handler on a random port
+// and returns the address and a stop function.
+func startTestServer(t *testing.T, srv pb.ChatServiceServer) (addr string, stop func()) {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return err
+		t.Fatalf("listen: %v", err)
 	}
-	tc.conn = conn
-	return nil
+	grpcSrv := grpc.NewServer()
+	pb.RegisterChatServiceServer(grpcSrv, srv)
+	go grpcSrv.Serve(lis)
+	return lis.Addr().String(), func() { grpcSrv.Stop() }
 }
 
-func (tc *TransportClient) Close() error {
-	if tc.conn != nil {
-		return tc.conn.Close()
+func TestClientConnectsToServer(t *testing.T) {
+	ns := &noopServer{connected: make(chan struct{})}
+	addr, stop := startTestServer(t, ns)
+	defer stop()
+
+	mUI := &testutil.MockUI{}
+	mgr := chat.NewManager("Bob", mUI)
+
+	c, err := New(addr, mgr)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
 	}
-	return nil
+	defer c.conn.Close()
+
+	select {
+	case <-ns.connected:
+		// server saw the connection — pass
+	case <-time.After(2 * time.Second):
+		t.Errorf("server did not receive connection within timeout")
+	}
 }
 
-func (tc *TransportClient) Send(msg Message) error { return nil }
+func TestClientConnectFailsOnNoServer(t *testing.T) {
+	mUI := &testutil.MockUI{}
+	mgr := chat.NewManager("Bob", mUI)
+	// Port 1 is never open in test environments.
+	_, err := New("127.0.0.1:1", mgr)
+	if err == nil {
+		t.Errorf("New() should fail when no server is listening")
+	}
+}
+
+func TestClientRunSendsAndReceivesMessages(t *testing.T) {
+	// echoServer echoes messages back. We send one message; the UI then
+	// returns io.EOF which stops the outgoing handler. The incoming handler
+	// should display the echoed message before the session fully closes.
+	// We poll for the displayed message with a generous timeout.
+	addr, stop := startTestServer(t, &echoServer{})
+	defer stop()
+
+	mUI := &testutil.MockUI{}
+	mUI.SetInputs([]string{"Hello server!"})
+	mgr := chat.NewManager("Bob", mUI)
+
+	c, err := New(addr, mgr)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	go c.Run() //nolint:errcheck
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		msgs := mUI.Messages()
+		if len(msgs) > 0 {
+			if msgs[0].Text != "Hello server!" {
+				t.Errorf("unexpected displayed message: %+v", msgs[0])
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("timed out waiting for echoed message to be displayed")
+}
+
+func TestClientHandlesServerDisconnect(t *testing.T) {
+	ns := &noopServer{connected: make(chan struct{})}
+	addr, stop := startTestServer(t, ns)
+
+	mUI := &testutil.MockUI{}
+	mgr := chat.NewManager("Bob", mUI)
+
+	c, err := New(addr, mgr)
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- c.Run() }()
+
+	// Wait for the server to see the connection, then shut it down.
+	<-ns.connected
+	stop()
+
+	select {
+	case <-done:
+		// Run() returned after server disconnect — pass
+	case <-time.After(3 * time.Second):
+		t.Errorf("Run() did not return after server disconnect")
+	}
+}
