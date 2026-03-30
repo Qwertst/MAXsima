@@ -8,7 +8,7 @@ import (
 	"github.com/aydreq/maxsima/internal/model"
 )
 
-type UIRenderer interface {
+type Renderer interface {
 	DisplayMessage(msg model.Message)
 	ReadInput() (string, error)
 }

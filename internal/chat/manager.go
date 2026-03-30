@@ -9,14 +9,18 @@ import (
 	"github.com/aydreq/maxsima/internal/ui"
 )
 
+// Message is a re-export of model.Message for use within the chat package tests.
+type Message = model.Message
+
 type Manager struct {
 	username string
-	ui       ui.UIRenderer
+	ui       ui.Renderer
 	session  *Session
 	done     chan struct{}
 }
 
-func NewManager(username string, renderer ui.UIRenderer) *Manager {
+// NewManager creates a new Manager. NewChatManager is an alias for compatibility.
+func NewManager(username string, renderer ui.Renderer) *Manager {
 	return &Manager{
 		username: username,
 		ui:       renderer,
@@ -24,17 +28,33 @@ func NewManager(username string, renderer ui.UIRenderer) *Manager {
 	}
 }
 
+// NewChatManager is an alias for NewManager, used by tests.
+func NewChatManager(renderer ui.Renderer, username string) *Manager {
+	return NewManager(username, renderer)
+}
+
+// GetUsername returns the username of this manager.
+func (m *Manager) GetUsername() string {
+	return m.username
+}
+
 func (m *Manager) StartSession(sender MessageSender, receiver MessageReceiver) error {
+	// Reset the done channel so Wait() blocks correctly for this new session.
+	m.done = make(chan struct{})
 	m.session = NewSession(sender, receiver, m.username)
 
 	go m.handleIncoming()
 	go m.handleOutgoing()
 
-	<-m.done
 	return nil
 }
 
-func (m *Manager) StopSession() {
+func (m *Manager) Wait() {
+	<-m.done
+}
+
+// StopSession stops the active session and returns nil.
+func (m *Manager) StopSession() error {
 	if m.session != nil {
 		m.session.Close()
 	}
@@ -43,6 +63,7 @@ func (m *Manager) StopSession() {
 	default:
 		close(m.done)
 	}
+	return nil
 }
 
 func (m *Manager) handleIncoming() {
@@ -52,7 +73,9 @@ func (m *Manager) handleIncoming() {
 			if err != io.EOF {
 				fmt.Printf("receive error: %v\n", err)
 			}
-			m.StopSession()
+			if stopErr := m.StopSession(); stopErr != nil {
+				fmt.Printf("stop session error: %v\n", stopErr)
+			}
 			return
 		}
 		m.ui.DisplayMessage(msg)
@@ -63,7 +86,9 @@ func (m *Manager) handleOutgoing() {
 	for m.session.IsActive() {
 		text, err := m.ui.ReadInput()
 		if err != nil {
-			m.StopSession()
+			// io.EOF means the user closed their input (e.g. Ctrl-D).
+			// We stop sending but do NOT stop the session — handleIncoming
+			// will keep running until the remote side closes the stream.
 			return
 		}
 		if text == "" {
@@ -76,7 +101,9 @@ func (m *Manager) handleOutgoing() {
 		}
 		if err := m.session.sender.Send(msg); err != nil {
 			fmt.Printf("send error: %v\n", err)
-			m.StopSession()
+			if stopErr := m.StopSession(); stopErr != nil {
+				fmt.Printf("stop session error: %v\n", stopErr)
+			}
 			return
 		}
 	}

@@ -11,7 +11,7 @@ linters:
     - typecheck
     - unused
     - goimports
-    - golint
+    - revive
     - gosimple
     - lll
     - misspell

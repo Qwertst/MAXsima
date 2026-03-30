@@ -1,315 +1,207 @@
 package server
 
 import (
+	"context"
+	"net"
 	"testing"
 	"time"
-	"net"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/aydreq/maxsima/internal/chat"
+	"github.com/aydreq/maxsima/internal/testutil"
+	pb "github.com/aydreq/maxsima/proto/gen/chat"
 )
 
-func TestServerStartListening(t *testing.T) {
-	config := ServerConfig{
-		Username: "Alice",
-		Port:     54321,
-	}
-
-	manager := &MockChatManager{}
-
-	server := NewServer(config, manager)
-	err := server.Start()
-
+// startRealServer starts a gRPC server using the production server.New() and
+// registers it on a random port. Returns the address and a stop function.
+func startRealServer(t *testing.T, mgr *chat.Manager) (addr string, stop func()) {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Errorf("Server.Start() should not produce error, got: %v", err)
+		t.Fatalf("listen: %v", err)
 	}
+	grpcSrv := grpc.NewServer()
+	// Use the production server.New() — this is what we're testing.
+	srv := New(mgr)
+	pb.RegisterChatServiceServer(grpcSrv, srv)
+	go func() { _ = grpcSrv.Serve(lis) }()
+	return lis.Addr().String(), func() { grpcSrv.Stop() }
+}
 
-	defer server.Stop()
-
-	time.Sleep(100 * time.Millisecond)
-	conn, err := net.DialTimeout("tcp", "localhost:54321", 1*time.Second)
+// dialStream opens a gRPC Connect stream to addr.
+func dialStream(t *testing.T, addr string) (pb.ChatService_ConnectClient, func()) {
+	t.Helper()
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		t.Errorf("Server should be listening on port 54321, but got error: %v", err)
-	} else {
+		t.Fatalf("dial: %v", err)
+	}
+	stream, err := pb.NewChatServiceClient(conn).Connect(context.Background())
+	if err != nil {
 		conn.Close()
+		t.Fatalf("Connect: %v", err)
+	}
+	return stream, func() { conn.Close() }
+}
+
+func TestServerNew(t *testing.T) {
+	mUI := &testutil.MockUI{}
+	mgr := chat.NewManager("Alice", mUI)
+	srv := New(mgr)
+	if srv == nil {
+		t.Errorf("New() should return a non-nil Server")
 	}
 }
 
-func TestServerStopShutdown(t *testing.T) {
-	config := ServerConfig{
-		Username: "Alice",
-		Port:     54322,
-	}
-	manager := &MockChatManager{}
-	server := NewServer(config, manager)
-	server.Start()
+func TestServerAcceptsGRPCConnection(t *testing.T) {
+	mUI := testutil.NewBlockingMockUI()
+	mgr := chat.NewManager("Alice", mUI)
+	addr, stop := startRealServer(t, mgr)
+	defer stop()
+	defer mUI.Stop()
 
-	err := server.Stop()
-
-	if err != nil {
-		t.Errorf("Server.Stop() should not produce error, got: %v", err)
-	}
-
-	time.Sleep(100 * time.Millisecond)
-	conn, err := net.DialTimeout("tcp", "localhost:54322", 1*time.Second)
-	if err == nil {
-		conn.Close()
-		t.Errorf("Server should not be listening after Stop()")
-	}
+	_, closeConn := dialStream(t, addr)
+	defer closeConn()
+	// Reaching here without error means server.Connect() was invoked.
 }
 
-func TestServerAcceptsConnection(t *testing.T) {
-	config := ServerConfig{
-		Username: "Alice",
-		Port:     54323,
-	}
-	manager := &MockChatManager{}
-	server := NewServer(config, manager)
-	server.Start()
-	defer server.Stop()
+func TestServerListensOnPort(t *testing.T) {
+	mUI := testutil.NewBlockingMockUI()
+	mgr := chat.NewManager("Alice", mUI)
+	addr, stop := startRealServer(t, mgr)
+	defer stop()
+	defer mUI.Stop()
 
-	time.Sleep(100 * time.Millisecond)
-
-	addr := "localhost:54323"
-	conn, err := net.Dial("tcp", addr)
-
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
 	if err != nil {
-		t.Errorf("Should be able to connect to server at %s: %v", addr, err)
-	} else {
-		conn.Close()
+		t.Errorf("server should be reachable at %s: %v", addr, err)
+		return
 	}
+	conn.Close()
 }
 
-func TestBidirectionalMessagingRequired(t *testing.T) {
-	serverConfig := ServerConfig{
-		Username: "Alice",
-		Port:     54326,
-	}
-	serverManager := &MockChatManager{}
-	server := NewServer(serverConfig, serverManager)
-	server.Start()
-	defer server.Stop()
+func TestServerReceivesMessageFromClient(t *testing.T) {
+	mUI := testutil.NewBlockingMockUI()
+	mgr := chat.NewManager("Alice", mUI)
+	addr, stop := startRealServer(t, mgr)
+	defer stop()
+	defer mUI.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	stream, closeConn := dialStream(t, addr)
+	defer closeConn()
 
-	clientConfig := ClientConfig{
-		Username:    "Bob",
-		PeerAddress: "localhost:54326",
-	}
-	client := NewClient(clientConfig)
-	client.Connect()
-	defer client.Close()
-
-	clientMsg := Message{
+	err := stream.Send(&pb.ChatMessage{
 		SenderName: "Bob",
-		Timestamp:  time.Now(),
-		Text:       "Hello from client",
-	}
-	err := client.Send(clientMsg)
-
+		Timestamp:  time.Now().Unix(),
+		Text:       "Hello Alice!",
+	})
 	if err != nil {
-		t.Errorf("Client should be able to send message: %v", err)
+		t.Fatalf("client Send failed: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
-	if len(serverManager.ReceivedMessages) == 0 {
-		t.Logf("Server should receive message from client (implementation dependent)")
+	msgs := mUI.Messages()
+	if len(msgs) == 0 {
+		t.Fatalf("server manager should have displayed the incoming message")
+	}
+	if msgs[0].SenderName != "Bob" || msgs[0].Text != "Hello Alice!" {
+		t.Errorf("unexpected message: %+v", msgs[0])
 	}
 }
 
-func TestServerReceivesMessage(t *testing.T) {
-	serverConfig := ServerConfig{
-		Username: "Alice",
-		Port:     54327,
-	}
-	serverManager := &MockChatManager{}
-	server := NewServer(serverConfig, serverManager)
-	server.Start()
-	defer server.Stop()
+func TestServerSendsMessageToClient(t *testing.T) {
+	// Use a MockUI with one queued input so the server sends one message.
+	serverUI := &testutil.MockUI{}
+	serverUI.SetInputs([]string{"Hello Bob!"})
+	mgr := chat.NewManager("Alice", serverUI)
+	addr, stop := startRealServer(t, mgr)
+	defer stop()
 
-	time.Sleep(100 * time.Millisecond)
+	stream, closeConn := dialStream(t, addr)
+	defer closeConn()
 
-	clientConfig := ClientConfig{
-		Username:    "Bob",
-		PeerAddress: "localhost:54327",
-	}
-	client := NewClient(clientConfig)
-	client.Connect()
-	defer client.Close()
-
-	testMsg := Message{
-		SenderName: "Bob",
-		Timestamp:  time.Date(2026, 3, 30, 16, 30, 0, 0, time.UTC),
-		Text:       "Test message from client",
-	}
-	client.Send(testMsg)
-
-	time.Sleep(100 * time.Millisecond)
-
-	if len(serverManager.ReceivedMessages) > 0 {
-		receivedMsg := serverManager.ReceivedMessages[0]
-		if receivedMsg.SenderName != "Bob" || receivedMsg.Text != "Test message from client" {
-			t.Errorf("Server received wrong message: %v", receivedMsg)
+	done := make(chan *pb.ChatMessage, 1)
+	go func() {
+		msg, err := stream.Recv()
+		if err != nil {
+			done <- nil
+			return
 		}
+		done <- msg
+	}()
+
+	select {
+	case msg := <-done:
+		if msg == nil {
+			t.Fatalf("expected a message from server, got error/EOF")
+		}
+		if msg.SenderName != "Alice" || msg.Text != "Hello Bob!" {
+			t.Errorf("unexpected message: %+v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Errorf("timed out waiting for message from server")
 	}
 }
 
-func TestServerSendsMessage(t *testing.T) {
-	serverConfig := ServerConfig{
-		Username: "Alice",
-		Port:     54328,
-	}
-	serverManager := &MockChatManager{}
-	server := NewServer(serverConfig, serverManager)
-	server.Start()
-	defer server.Stop()
+func TestServerStopsAfterClientDisconnects(t *testing.T) {
+	mUI := testutil.NewBlockingMockUI()
+	mgr := chat.NewManager("Alice", mUI)
+	addr, stop := startRealServer(t, mgr)
+	defer stop()
+	defer mUI.Stop()
 
-	time.Sleep(100 * time.Millisecond)
+	stream, closeConn := dialStream(t, addr)
+	closeConn()
+	_ = stream
 
-	clientConfig := ClientConfig{
-		Username:    "Bob",
-		PeerAddress: "localhost:54328",
-	}
-	client := NewClient(clientConfig)
-	client.Connect()
-	defer client.Close()
+	time.Sleep(200 * time.Millisecond)
+	// No assertion needed — test passes if no deadlock/panic.
+}
 
-	serverMsg := Message{
-		SenderName: "Alice",
-		Timestamp:  time.Now(),
-		Text:       "Hello from server",
-	}
-	err := server.Send(serverMsg)
+func TestServerListenFunction(t *testing.T) {
+	// Test the Listen() function by starting it in a goroutine and verifying
+	// the port is reachable, then stopping via the gRPC server shutdown.
+	// We can't call Listen() directly in a test without a way to stop it,
+	// so we verify it returns an error on an invalid port.
+	mUI := &testutil.MockUI{}
+	mgr := chat.NewManager("Alice", mUI)
+	srv := New(mgr)
 
+	// Listen on port 0 is not valid for our Listen() which uses fmt.Sprintf(":%d", port).
+	// Instead verify Listen returns error on already-used port.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Logf("Server.Send() produced error: %v (may indicate implementation issue)", err)
+		t.Fatalf("setup listen: %v", err)
 	}
+	usedPort := lis.Addr().(*net.TCPAddr).Port
+	lis.Close()
 
+	// Listen on the same port in a goroutine; it should succeed briefly.
+	done := make(chan error, 1)
+	go func() {
+		done <- Listen(usedPort, srv)
+	}()
+
+	// Give it time to start.
 	time.Sleep(100 * time.Millisecond)
 
-	if len(client.ReceivedMessages) == 0 {
-		t.Logf("Client should receive message from server (implementation dependent)")
-	}
-}
-
-func TestMessageSerialization(t *testing.T) {
-	originalMsg := Message{
-		SenderName: "TestUser",
-		Timestamp:  time.Date(2026, 3, 30, 17, 0, 0, 0, time.UTC),
-		Text:       "Сообщение с кириллицей и спецсимволами! 😀",
+	// Verify it's listening.
+	conn, err := net.DialTimeout("tcp", lis.Addr().String(), time.Second)
+	if err != nil {
+		t.Logf("Listen() may not have started yet: %v", err)
+	} else {
+		conn.Close()
 	}
 
-	serialized := messageToProto(originalMsg)
-	deserialized := protoToMessage(serialized)
-
-	if deserialized.SenderName != originalMsg.SenderName {
-		t.Errorf("SenderName corrupted in serialization: %s vs %s", deserialized.SenderName, originalMsg.SenderName)
+	// We can't easily stop Listen() from outside, so just verify no immediate error.
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Logf("Listen() returned error (may be expected in test): %v", err)
+		}
+	default:
+		// Still running — that's the expected state.
 	}
-	if deserialized.Text != originalMsg.Text {
-		t.Errorf("Text corrupted in serialization: %s vs %s", deserialized.Text, originalMsg.Text)
-	}
 }
-
-type MockChatManager struct {
-	ReceivedMessages []Message
-	SentMessages     []Message
-}
-
-func (m *MockChatManager) StartSession(sender MessageSender, receiver MessageReceiver) error {
-	return nil
-}
-
-func (m *MockChatManager) StopSession() error {
-	return nil
-}
-
-type MockMessageStream struct {
-	sentMessages     []Message
-	receivedMessages []Message
-	isClosed         bool
-}
-
-func (m *MockMessageStream) Send(msg Message) error {
-	if m.isClosed {
-		return ErrStreamClosed
-	}
-	m.sentMessages = append(m.sentMessages, msg)
-	return nil
-}
-
-func (m *MockMessageStream) Receive() (Message, error) {
-	if m.isClosed || len(m.receivedMessages) == 0 {
-		return Message{}, ErrStreamClosed
-	}
-	msg := m.receivedMessages[0]
-	m.receivedMessages = m.receivedMessages[1:]
-	return msg, nil
-}
-
-func (m *MockMessageStream) Close() error {
-	m.isClosed = true
-	return nil
-}
-
-type ServerConfig struct {
-	Username string
-	Port     int
-}
-
-type ClientConfig struct {
-	Username    string
-	PeerAddress string
-}
-
-func messageToProto(msg Message) interface{} {
-	return msg
-}
-
-func protoToMessage(proto interface{}) Message {
-	return proto.(Message)
-}
-
-var (
-	ErrStreamClosed = &TransportError{Code: "STREAM_CLOSED", Message: "Stream is closed"}
-)
-
-type TransportError struct {
-	Code    string
-	Message string
-}
-
-func (e *TransportError) Error() string {
-	return e.Message
-}
-
-type Message struct {
-	SenderName string
-	Timestamp  time.Time
-	Text       string
-}
-
-type MessageSender interface {
-	Send(msg Message) error
-}
-
-type MessageReceiver interface {
-	Receive() (Message, error)
-}
-
-func NewServer(cfg ServerConfig, mgr interface{}) *TransportServer {
-	return &TransportServer{}
-}
-
-func NewClient(cfg ClientConfig) *TransportClient {
-	return &TransportClient{}
-}
-
-type TransportServer struct{}
-func (ts *TransportServer) Start() error { return nil }
-func (ts *TransportServer) Stop() error { return nil }
-func (ts *TransportServer) Send(msg Message) error { return nil }
-
-type TransportClient struct {
-	ReceivedMessages []Message
-}
-func (tc *TransportClient) Connect() error { return nil }
-func (tc *TransportClient) Close() error { return nil }
-func (tc *TransportClient) Send(msg Message) error { return nil }

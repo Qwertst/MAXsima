@@ -35,7 +35,11 @@ func New(peerAddress string, manager *chat.Manager) (*Client, error) {
 func (c *Client) Run() error {
 	defer c.conn.Close()
 	adapter := &streamAdapter{stream: c.stream}
-	return c.manager.StartSession(adapter, adapter)
+	if err := c.manager.StartSession(adapter, adapter); err != nil {
+		return err
+	}
+	c.manager.Wait()
+	return nil
 }
 
 type streamAdapter struct {
