@@ -7,7 +7,7 @@ import (
 
 func TestMessageFormat(t *testing.T) {
 	fixedTime := time.Date(2026, 3, 30, 14, 32, 1, 0, time.UTC)
-	
+
 	msg := Message{
 		SenderName: "Alice",
 		Timestamp:  fixedTime,
@@ -16,7 +16,7 @@ func TestMessageFormat(t *testing.T) {
 
 	formatted := msg.Format()
 
-	expectedFormat := "[14:32:01] Alice: Hello World!"
+	expectedFormat := "[2026-03-30 14:32:01] Alice: Hello World!"
 	if formatted != expectedFormat {
 		t.Errorf("Expected '%s', got '%s'", expectedFormat, formatted)
 	}
@@ -32,7 +32,7 @@ func TestMessageFormatWithEmptyText(t *testing.T) {
 
 	formatted := msg.Format()
 
-	expectedFormat := "[15:45:30] Bob: "
+	expectedFormat := "[2026-03-30 15:45:30] Bob: "
 	if formatted != expectedFormat {
 		t.Errorf("Expected '%s', got '%s'", expectedFormat, formatted)
 	}
@@ -48,7 +48,7 @@ func TestMessageFormatWithSpecialCharacters(t *testing.T) {
 
 	formatted := msg.Format()
 
-	expectedFormat := "[16:20:15] Алиса: Привет! 👋 Как дела?"
+	expectedFormat := "[2026-03-30 16:20:15] Алиса: Привет! 👋 Как дела?"
 	if formatted != expectedFormat {
 		t.Errorf("Expected '%s', got '%s'", expectedFormat, formatted)
 	}
@@ -59,7 +59,7 @@ func TestMessageFormatWithLongText(t *testing.T) {
 	longText := "Lorem ipsum dolor sit amet, consectetur adipiscing elit. " +
 		"Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. " +
 		"Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
-	
+
 	msg := Message{
 		SenderName: "Charlie",
 		Timestamp:  fixedTime,
@@ -71,7 +71,7 @@ func TestMessageFormatWithLongText(t *testing.T) {
 	if !contains(formatted, longText) {
 		t.Errorf("Formatted message doesn't contain full text")
 	}
-	if !contains(formatted, "[17:00:00] Charlie:") {
+	if !contains(formatted, "[2026-03-30 17:00:00] Charlie:") {
 		t.Errorf("Formatted message doesn't contain proper header")
 	}
 }
@@ -114,7 +114,7 @@ func TestMessageTimestampPrecision(t *testing.T) {
 }
 
 func contains(str, substring string) bool {
-	return len(str) >= len(substring) && str[:len(substring)] == substring || 
+	return len(str) >= len(substring) && str[:len(substring)] == substring ||
 		(len(str) > len(substring) && str[len(str)-len(substring):] == substring) ||
 		indexOf(str, substring) >= 0
 }

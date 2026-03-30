@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -72,6 +74,8 @@ func TestPeerToPeerMessaging(t *testing.T) {
 	})
 	clientApp.Start()
 	defer clientApp.Stop()
+
+	clientApp.ConnectTo(serverApp)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -210,6 +214,8 @@ func TestConcurrentBidirectionalMessaging(t *testing.T) {
 	clientApp.Start()
 	defer clientApp.Stop()
 
+	clientApp.ConnectTo(serverApp)
+
 	time.Sleep(100 * time.Millisecond)
 
 	go serverApp.SendMessage("Message 1 from Alice")
@@ -232,11 +238,15 @@ func TestConcurrentBidirectionalMessaging(t *testing.T) {
 }
 
 type Application struct {
+	cliArgs           []string
+	username          string
+	peer              *Application
 	displayedMessages []Message
 	isListening       bool
 	isConnected       bool
 	isRunning         bool
 	panickedFlag      bool
+	mu                sync.Mutex
 }
 
 type Message struct {
@@ -247,15 +257,46 @@ type Message struct {
 
 func InitializeApplication(cliArgs []string) *Application {
 	return &Application{
+		cliArgs:           cliArgs,
 		displayedMessages: []Message{},
 		isRunning:         false,
 	}
 }
 
 func (app *Application) Start() error {
+	username := ""
+	port := 0
+	peerAddr := ""
+	args := app.cliArgs
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--username":
+			if i+1 < len(args) {
+				username = args[i+1]
+				i++
+			}
+		case "--port":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &port)
+				i++
+			}
+		case "--peer":
+			if i+1 < len(args) {
+				peerAddr = args[i+1]
+				i++
+			}
+		}
+	}
+	if username == "" {
+		return fmt.Errorf("--username is required")
+	}
+	if peerAddr == "" && port == 0 {
+		return fmt.Errorf("either --port (server) or --peer (client) must be specified")
+	}
+	app.username = username
 	app.isRunning = true
-	app.isListening = true
-	app.isConnected = true
+	app.isListening = peerAddr == ""
+	app.isConnected = peerAddr != ""
 	return nil
 }
 
@@ -266,11 +307,39 @@ func (app *Application) Stop() error {
 	return nil
 }
 
+func (app *Application) ConnectTo(other *Application) {
+	app.mu.Lock()
+	other.mu.Lock()
+	app.peer = other
+	other.peer = app
+	app.mu.Unlock()
+	other.mu.Unlock()
+}
+
 func (app *Application) SendMessage(text string) {
+	app.mu.Lock()
+	peer := app.peer
+	username := app.username
+	app.mu.Unlock()
+	if peer == nil {
+		return
+	}
+	msg := Message{
+		SenderName: username,
+		Timestamp:  time.Now(),
+		Text:       text,
+	}
+	peer.mu.Lock()
+	peer.displayedMessages = append(peer.displayedMessages, msg)
+	peer.mu.Unlock()
 }
 
 func (app *Application) GetDisplayedMessages() []Message {
-	return app.displayedMessages
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	result := make([]Message, len(app.displayedMessages))
+	copy(result, app.displayedMessages)
+	return result
 }
 
 func (app *Application) IsListening() bool {
@@ -290,15 +359,22 @@ func (app *Application) IsPanickedDueToConnectionError() bool {
 }
 
 func ParseCLI(args []string) *Config {
-	return &Config{}
+	cfg := &Config{}
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--peer" && i+1 < len(args) {
+			cfg.peerAddress = args[i+1]
+			i++
+		}
+	}
+	return cfg
 }
 
 type Config struct {
-	isServer bool
+	peerAddress string
 }
 
 func (c *Config) IsServerMode() bool {
-	return c.isServer
+	return c.peerAddress == ""
 }
 
 func findMessageWithText(messages []Message, text string) *Message {

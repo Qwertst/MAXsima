@@ -23,7 +23,11 @@ func New(manager *chat.Manager) *Server {
 
 func (s *Server) Connect(stream pb.ChatService_ConnectServer) error {
 	adapter := &streamAdapter{stream: stream}
-	return s.manager.StartSession(adapter, adapter)
+	if err := s.manager.StartSession(adapter, adapter); err != nil {
+		return err
+	}
+	s.manager.Wait()
+	return nil
 }
 
 func Listen(port int, srv *Server) error {

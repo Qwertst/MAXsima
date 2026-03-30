@@ -1,6 +1,8 @@
 package client
 
 import (
+	"fmt"
+	"net"
 	"testing"
 	"time"
 )
@@ -110,19 +112,64 @@ type MessageReceiver interface {
 }
 
 func NewServer(cfg ServerConfig, mgr interface{}) *TransportServer {
-	return &TransportServer{}
+	return &TransportServer{port: cfg.Port}
 }
 
 func NewClient(cfg ClientConfig) *TransportClient {
-	return &TransportClient{}
+	return &TransportClient{peerAddress: cfg.PeerAddress}
 }
 
-type TransportServer struct{}
-func (ts *TransportServer) Start() error { return nil }
-func (ts *TransportServer) Stop() error { return nil }
+type TransportServer struct {
+	port     int
+	listener net.Listener
+}
+
+func (ts *TransportServer) Start() error {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ts.port))
+	if err != nil {
+		return err
+	}
+	ts.listener = ln
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+	return nil
+}
+
+func (ts *TransportServer) Stop() error {
+	if ts.listener != nil {
+		return ts.listener.Close()
+	}
+	return nil
+}
+
 func (ts *TransportServer) Send(msg Message) error { return nil }
 
-type TransportClient struct{}
-func (tc *TransportClient) Connect() error { return nil }
-func (tc *TransportClient) Close() error { return nil }
+type TransportClient struct {
+	peerAddress string
+	conn        net.Conn
+}
+
+func (tc *TransportClient) Connect() error {
+	conn, err := net.DialTimeout("tcp", tc.peerAddress, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	tc.conn = conn
+	return nil
+}
+
+func (tc *TransportClient) Close() error {
+	if tc.conn != nil {
+		return tc.conn.Close()
+	}
+	return nil
+}
+
 func (tc *TransportClient) Send(msg Message) error { return nil }

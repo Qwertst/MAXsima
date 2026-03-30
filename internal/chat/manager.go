@@ -9,6 +9,9 @@ import (
 	"github.com/aydreq/maxsima/internal/ui"
 )
 
+// Message is a re-export of model.Message for use within the chat package tests.
+type Message = model.Message
+
 type Manager struct {
 	username string
 	ui       ui.UIRenderer
@@ -16,6 +19,7 @@ type Manager struct {
 	done     chan struct{}
 }
 
+// NewManager creates a new Manager. NewChatManager is an alias for compatibility.
 func NewManager(username string, renderer ui.UIRenderer) *Manager {
 	return &Manager{
 		username: username,
@@ -24,17 +28,31 @@ func NewManager(username string, renderer ui.UIRenderer) *Manager {
 	}
 }
 
+// NewChatManager is an alias for NewManager, used by tests.
+func NewChatManager(renderer ui.UIRenderer, username string) *Manager {
+	return NewManager(username, renderer)
+}
+
+// GetUsername returns the username of this manager.
+func (m *Manager) GetUsername() string {
+	return m.username
+}
+
 func (m *Manager) StartSession(sender MessageSender, receiver MessageReceiver) error {
 	m.session = NewSession(sender, receiver, m.username)
 
 	go m.handleIncoming()
 	go m.handleOutgoing()
 
-	<-m.done
 	return nil
 }
 
-func (m *Manager) StopSession() {
+func (m *Manager) Wait() {
+	<-m.done
+}
+
+// StopSession stops the active session and returns nil.
+func (m *Manager) StopSession() error {
 	if m.session != nil {
 		m.session.Close()
 	}
@@ -43,6 +61,7 @@ func (m *Manager) StopSession() {
 	default:
 		close(m.done)
 	}
+	return nil
 }
 
 func (m *Manager) handleIncoming() {
@@ -63,7 +82,9 @@ func (m *Manager) handleOutgoing() {
 	for m.session.IsActive() {
 		text, err := m.ui.ReadInput()
 		if err != nil {
-			m.StopSession()
+			if err == io.EOF {
+				m.StopSession()
+			}
 			return
 		}
 		if text == "" {

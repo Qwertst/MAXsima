@@ -6,13 +6,15 @@ import (
 	"bufio"
 	"bytes"
 	"time"
+
+	"github.com/aydreq/maxsima/internal/model"
 )
 
 func TestConsoleUIDisplayMessage(t *testing.T) {
 	var output bytes.Buffer
 	ui := NewConsoleUI(&output, nil)
 
-	msg := Message{
+	msg := model.Message{
 		SenderName: "Alice",
 		Timestamp:  time.Date(2026, 3, 30, 14, 32, 1, 0, time.UTC),
 		Text:       "Hello World!",
@@ -21,7 +23,7 @@ func TestConsoleUIDisplayMessage(t *testing.T) {
 	ui.DisplayMessage(msg)
 
 	outputStr := output.String()
-	expectedContent := "[14:32:01] Alice: Hello World!"
+	expectedContent := "[2026-03-30 14:32:01] Alice: Hello World!"
 	if !strings.Contains(outputStr, expectedContent) {
 		t.Errorf("Output doesn't contain expected message. Expected: '%s', Got: '%s'", expectedContent, outputStr)
 	}
@@ -31,12 +33,12 @@ func TestConsoleUIDisplayMessageAddsNewline(t *testing.T) {
 	var output bytes.Buffer
 	ui := NewConsoleUI(&output, nil)
 
-	msg1 := Message{
+	msg1 := model.Message{
 		SenderName: "Alice",
 		Timestamp:  time.Date(2026, 3, 30, 14, 32, 1, 0, time.UTC),
 		Text:       "Message 1",
 	}
-	msg2 := Message{
+	msg2 := model.Message{
 		SenderName: "Bob",
 		Timestamp:  time.Date(2026, 3, 30, 14, 32, 2, 0, time.UTC),
 		Text:       "Message 2",
@@ -55,7 +57,7 @@ func TestConsoleUIDisplayMessageAddsNewline(t *testing.T) {
 func TestConsoleUIReadInput(t *testing.T) {
 	inputText := "Hello from user\n"
 	reader := bufio.NewReader(strings.NewReader(inputText))
-	
+
 	var output bytes.Buffer
 	ui := NewConsoleUI(&output, reader)
 
@@ -72,7 +74,7 @@ func TestConsoleUIReadInput(t *testing.T) {
 func TestConsoleUIReadInputEmptyLine(t *testing.T) {
 	inputText := "\n"
 	reader := bufio.NewReader(strings.NewReader(inputText))
-	
+
 	var output bytes.Buffer
 	ui := NewConsoleUI(&output, reader)
 
@@ -89,7 +91,7 @@ func TestConsoleUIReadInputEmptyLine(t *testing.T) {
 func TestConsoleUIReadInputMultipleLines(t *testing.T) {
 	inputText := "First line\nSecond line\nThird line\n"
 	reader := bufio.NewReader(strings.NewReader(inputText))
-	
+
 	var output bytes.Buffer
 	ui := NewConsoleUI(&output, reader)
 
@@ -114,7 +116,7 @@ func TestConsoleUIReadInputMultipleLines(t *testing.T) {
 func TestConsoleUIReadInputWithSpecialCharacters(t *testing.T) {
 	inputText := "Привет! 👋 Как дела?\n"
 	reader := bufio.NewReader(strings.NewReader(inputText))
-	
+
 	var output bytes.Buffer
 	ui := NewConsoleUI(&output, reader)
 
@@ -141,7 +143,7 @@ func TestConsoleUIIsImplementingUIRenderer(t *testing.T) {
 func TestConsoleUIDisplayMessageWithNilWriter(t *testing.T) {
 	ui := NewConsoleUI(nil, nil)
 
-	msg := Message{
+	msg := model.Message{
 		SenderName: "Test",
 		Timestamp:  time.Now(),
 		Text:       "test",
@@ -167,7 +169,7 @@ func TestConsoleUIDisplaysCorrectTimezone(t *testing.T) {
 	ui := NewConsoleUI(&output, nil)
 
 	utcTime := time.Date(2026, 3, 30, 14, 32, 1, 0, time.UTC)
-	msg := Message{
+	msg := model.Message{
 		SenderName: "Alice",
 		Timestamp:  utcTime,
 		Text:       "Test message",
@@ -176,7 +178,7 @@ func TestConsoleUIDisplaysCorrectTimezone(t *testing.T) {
 	ui.DisplayMessage(msg)
 
 	outputStr := output.String()
-	if !strings.Contains(outputStr, "14:32:01") {
-		t.Errorf("Expected time '14:32:01' in output, got: %s", outputStr)
+	if !strings.Contains(outputStr, "2026-03-30 14:32:01") {
+		t.Errorf("Expected time '2026-03-30 14:32:01' in output, got: %s", outputStr)
 	}
 }
